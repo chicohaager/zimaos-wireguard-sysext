@@ -72,7 +72,7 @@ function tunnelHTML(t) {
         <div class="form-grid">
           <label>Name<input type="text" name="name" placeholder="Laptop" maxlength="40" required></label>
           <label>This server as the client reaches it<input type="text" name="endpoint" placeholder="vpn.example.org:${esc(t.listen_port || 51820)}" required></label>
-          <label>DNS for the client (optional)<input type="text" name="dns" placeholder="e.g. 192.168.1.1"></label>
+          <label>DNS for the client (optional)<input type="text" name="dns" placeholder="e.g. 192.168.50.1"></label>
         </div>
         <label class="row" style="margin:8px 0;font-size:13px"><input type="checkbox" name="full_tunnel"> send all of the client's traffic through the tunnel</label>
         <button class="btn-primary" type="submit">Add client</button>
