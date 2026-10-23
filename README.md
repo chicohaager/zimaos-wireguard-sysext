@@ -42,6 +42,8 @@ ZFW drops incoming traffic it does not know. Its rules accept traffic **inside**
 
 ## Install (on the ZimaOS host)
 
+With the [Module Manager](https://github.com/chicohaager/modmanager) (v0.2.5 or later): tab **Catalog**, **WireGuard**, **Install** — it checks the release checksum and refuses an image that would replace files of ZimaOS. By hand:
+
 ```sh
 cd /tmp
 curl -fsSLO https://github.com/chicohaager/zimaos-wireguard-sysext/releases/latest/download/wireguard-amd64.raw
