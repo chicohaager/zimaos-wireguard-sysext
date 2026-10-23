@@ -48,7 +48,7 @@ function tunnelHTML(t) {
         </tr>`).join('')}</tbody>
     </table></div>` : '<p class="empty">No peers yet — add a client below.</p>';
   return `
-  <section class="card" data-tunnel="${esc(t.name)}">
+  <section class="card" data-tunnel="${esc(t.name)}" data-port="${esc(t.listen_port || '')}">
     <div class="tunnel-head">
       <h3 class="mono">${esc(t.name)}</h3>${state}${boot}
       <div class="app-actions">
@@ -128,11 +128,32 @@ async function refresh() {
   }
 }
 
+// ZFW steps after on/off; a ZFW failure is reported, the tunnel action itself stands.
+async function zfwOpen(port, name) {
+  if (!zfwPresent || !port) return null;
+  try {
+    if (await zfw.allowsUdp(port)) return null;
+    await zfw.openUdp(port, `WireGuard ${name} ${port}/udp`, 'Added by the WireGuard tile when the tunnel was turned on');
+    return { note: `UDP ${port} opened in ZFW` };
+  } catch (e) {
+    return { warning: `ZFW was not changed (${describe(e)}) — clients cannot connect until UDP ${port} is open` };
+  }
+}
+
+async function zfwClose(port) {
+  if (!zfwPresent || !port) return null;
+  try {
+    return (await zfw.closeUdp(port)) ? { note: `UDP ${port} closed in ZFW` } : null;
+  } catch (e) {
+    return { warning: `the ZFW rule for UDP ${port} could not be removed (${describe(e)})` };
+  }
+}
+
 async function act(label, fn) {
   setStatus(`${label} …`);
   try {
     const r = await fn();
-    setStatus(r && r.warning ? `${label}: done, but ${r.warning}` : `${label}: done.`, r && r.warning ? 'err' : 'ok');
+    setStatus(r && r.warning ? `${label}: done, but ${r.warning}` : `${label}: done${r && r.note ? ` — ${r.note}` : ''}.`, r && r.warning ? 'err' : 'ok');
     await load();
     return r;
   } catch (e) {
@@ -159,12 +180,23 @@ document.addEventListener('click', async (e) => {
   const card = btn.closest('[data-tunnel]');
   const name = card && card.dataset.tunnel;
   switch (btn.dataset.act) {
-    case 'enable': await act(`Turning ${name} on`, () => api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'enable' } })); break;
-    case 'disable': await act(`Turning ${name} off`, () => api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'disable' } })); break;
+    // On also opens the listen port in ZFW (it drops unknown UDP, measured on 1.8.0): without it the
+    // tunnel runs but no client gets through. Off and Delete remove exactly that rule again.
+    case 'enable': await act(`Turning ${name} on`, async () => {
+      await api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'enable' } });
+      return zfwOpen(Number(card.dataset.port), name);
+    }); break;
+    case 'disable': await act(`Turning ${name} off`, async () => {
+      await api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'disable' } });
+      return zfwClose(Number(card.dataset.port));
+    }); break;
     case 'restart': await act(`Restarting ${name}`, () => api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'restart' } })); break;
     case 'delete':
       if (!armed(btn)) return;
-      await act(`Deleting ${name} (the config is kept in .deleted)`, () => api(`${API}/tunnels/delete`, { method: 'POST', body: { name } }));
+      await act(`Deleting ${name} (the config is kept in .deleted)`, async () => {
+        await api(`${API}/tunnels/delete`, { method: 'POST', body: { name } });
+        return zfwClose(Number(card.dataset.port));
+      });
       break;
     case 'del-peer':
       if (!armed(btn)) return;

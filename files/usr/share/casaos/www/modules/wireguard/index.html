@@ -49,11 +49,11 @@
     <form id="new-tunnel" class="card" autocomplete="off">
       <h2 class="section-title">New tunnel</h2>
       <div class="form-grid">
-        <label>Name (interface)<input type="text" name="name" value="wg0" maxlength="15" required></label>
+        <label>Name (interface, starts with wg)<input type="text" name="name" value="wg0" maxlength="15" pattern="wg[a-zA-Z0-9_=+.-]{0,13}" required></label>
         <label>Address of this host in the tunnel<input type="text" name="address" value="10.8.0.1/24" required></label>
         <label>Listen port (UDP)<input type="number" name="listen_port" value="51820" min="1" max="65535" required></label>
       </div>
-      <p class="muted" style="font-size:12px;margin:8px 0">A new key pair is generated on this host. Clients reach it on the listen port: forward that UDP port on your router and, with ZFW installed, open it there (button on the tunnel).</p>
+      <p class="muted" style="font-size:12px;margin:8px 0">A new key pair is generated on this host. Clients reach it on the listen port: forward that UDP port on your router. With ZFW installed, turning the tunnel on opens the port there and turning it off closes it again; ZFW lets traffic inside the tunnel through because the interface name starts with <span class="mono">wg</span>.</p>
       <button type="submit" class="btn-primary">Create tunnel</button>
     </form>
   </main>

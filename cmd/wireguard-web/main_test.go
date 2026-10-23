@@ -176,6 +176,7 @@ func TestCreateTunnelRejectsBadInput(t *testing.T) {
 		{"name": "wg0", "address": "10.8.0.0/24", "listen_port": 51820}, // network address, not a host
 		{"name": "wg0", "address": "fd00::1/64", "listen_port": 51820},
 		{"name": "wg0", "address": "10.8.0.1/24", "listen_port": 0},
+		{"name": "home", "address": "10.8.0.1/24", "listen_port": 51820}, // ZFW only trusts wg* interfaces
 	} {
 		if w, _ := call(t, "POST", "/wireguard/tunnels", in); w.Code != http.StatusBadRequest {
 			t.Errorf("%v: %d", in, w.Code)

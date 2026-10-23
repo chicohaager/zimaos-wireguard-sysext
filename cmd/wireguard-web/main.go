@@ -180,6 +180,12 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_name", "name: 1–15 characters, letters, digits and _=+.- (it becomes the interface name)")
 		return
 	}
+	// ZFW lets traffic inside a tunnel through only on interfaces matching wg+ (its
+	// bypass list); a tunnel named otherwise would run with nothing getting through.
+	if !strings.HasPrefix(in.Name, "wg") {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_name", "name must start with wg (e.g. wg0): the ZFW firewall lets traffic through only on wg* interfaces")
+		return
+	}
 	p, err := netip.ParsePrefix(strings.TrimSpace(in.Address))
 	if err != nil || !p.Addr().Is4() || p.Bits() < 8 || p.Bits() > 30 || p.Addr() == p.Masked().Addr() {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_address", "address: this host's IPv4 address in the tunnel with its prefix, e.g. 10.8.0.1/24")
