@@ -8,6 +8,8 @@ ARCH="${1:-amd64}"
 MODKIT="${LINTUX_MODKIT:-../lintux-modkit}"
 [ -f "$MODKIT/sysext/unit-watchdog.sh" ] || { echo "lintux-modkit with sysext/unit-watchdog.sh not found at $MODKIT (set LINTUX_MODKIT)" >&2; exit 1; }
 VERSION=$(cat VERSION)
+go vet ./...
+go test ./...
 
 # wireguard-tools from upstream source, pinned by tag AND commit (Debian 13 ships 1.0.20210914).
 WG_TAG=v1.0.20260223
@@ -36,6 +38,10 @@ docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_C
   readelf -d /out/usr/bin/wg | sed -n "s/.*(NEEDED).*\[\(.*\)\]/needs \1/p"
   chown -R "$HOST_UID:$HOST_GID" /out'
 
-printf '{\n  "name": "wireguard",\n  "version": "v%s"\n}\n' "$VERSION" > build/root/usr/share/casaos/modules/wireguard.json
+# The tile: module JSON (its "services" make zpkg enable and start wireguard-web; without the
+# JSON zpkg answers "module not installed", rc=1 — measured 1.8.0), UI files and the backend.
+sh "$MODKIT/sysext/add-web.sh" wireguard build/root "$VERSION"
+CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
+  -o build/root/usr/bin/wireguard-web ./cmd/wireguard-web
 sh "$MODKIT/sysext/build-sysext.sh" wireguard build/root "$ARCH" dist "$VERSION"
 cat "dist/wireguard-$ARCH.raw.sha256"

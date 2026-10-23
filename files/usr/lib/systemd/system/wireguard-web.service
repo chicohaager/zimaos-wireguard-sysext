@@ -1,0 +1,21 @@
+[Unit]
+Description=WireGuard tile for ZimaOS (tunnels, clients, status)
+Documentation=https://github.com/chicohaager/zimaos-wireguard-sysext
+After=network-online.target zimaos-gateway.service
+Wants=network-online.target
+RequiresMountsFor=/DATA/AppData
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wireguard-web
+Restart=always
+RestartSec=5
+# Root in the host's namespaces: it writes the configs in /DATA/AppData/wireguard and runs
+# wireguard-zima / systemctl. No Protect*/Private* directives — they would give the service a
+# private mount namespace (measured for modmanager on 1.8.0).
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
