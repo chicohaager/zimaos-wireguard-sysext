@@ -1,0 +1,20 @@
+# wg-quick@.service from wireguard-tools, adapted for ZimaOS: the config lives in
+# /DATA/AppData/wireguard/<name>.conf (/DATA is persistent and mounted late, hence
+# RequiresMountsFor), no [Install] - a sysext unit is not started at boot, the
+# watchdog timer written by `wireguard-zima enable <name>` starts it.
+[Unit]
+Description=WireGuard tunnel %i (/DATA/AppData/wireguard/%i.conf)
+After=network-online.target nss-lookup.target
+Wants=network-online.target nss-lookup.target
+RequiresMountsFor=/DATA/AppData/wireguard
+StartLimitIntervalSec=0
+Documentation=man:wg-quick(8)
+Documentation=https://www.wireguard.com/
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/wg-quick up /DATA/AppData/wireguard/%i.conf
+ExecStop=/usr/bin/wg-quick down /DATA/AppData/wireguard/%i.conf
+ExecReload=/bin/bash -c 'exec /usr/bin/wg syncconf %i <(exec /usr/bin/wg-quick strip /DATA/AppData/wireguard/%i.conf)'
+Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity

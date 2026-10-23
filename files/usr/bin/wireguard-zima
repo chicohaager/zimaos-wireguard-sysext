@@ -1,0 +1,42 @@
+#!/bin/sh
+# Turn a WireGuard config in /DATA/AppData/wireguard into a tunnel that starts at boot.
+#   wireguard-zima enable <name>    /DATA/AppData/wireguard/<name>.conf -> wireguard@<name>, started now and at boot
+#   wireguard-zima disable <name>   stop it and remove the boot watchdog
+#   wireguard-zima status [<name>]  service state, watchdog, wg show
+#   wireguard-zima list             configs in /DATA/AppData/wireguard
+set -eu
+DIR=/DATA/AppData/wireguard
+WD=/usr/libexec/wireguard/unit-watchdog.sh
+usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+name() {
+  case "$1" in
+    *[!a-zA-Z0-9_=+.-]*|"") echo "invalid name: $1 (letters, digits, _=+.- only)" >&2; exit 2 ;;
+  esac
+  [ "${#1}" -le 15 ] || { echo "name too long: $1 (an interface name has at most 15 characters)" >&2; exit 2; }
+}
+CMD="${1:-}"
+case "$CMD" in
+enable)
+  N="${2:-}"; name "$N"
+  [ "$(id -u)" -eq 0 ] || { echo "needs root: sudo wireguard-zima enable $N" >&2; exit 1; }
+  [ -f "$DIR/$N.conf" ] || { echo "missing $DIR/$N.conf" >&2; exit 1; }
+  chmod 600 "$DIR/$N.conf"
+  sh "$WD" enable "wireguard@$N.service"
+  ;;
+disable)
+  N="${2:-}"; name "$N"
+  [ "$(id -u)" -eq 0 ] || { echo "needs root: sudo wireguard-zima disable $N" >&2; exit 1; }
+  sh "$WD" disable "wireguard@$N.service"
+  ;;
+status)
+  if [ -n "${2:-}" ]; then
+    name "$2"; sh "$WD" status "wireguard@$2.service"; wg show "$2" 2>/dev/null || true
+  else
+    for f in "$DIR"/*.conf; do [ -f "$f" ] || continue; n=$(basename "$f" .conf); sh "$WD" status "wireguard@$n.service"; done
+  fi
+  ;;
+list)
+  for f in "$DIR"/*.conf; do [ -f "$f" ] && basename "$f" .conf; done; true
+  ;;
+*) usage ;;
+esac
