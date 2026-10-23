@@ -1,0 +1,57 @@
+# WireGuard tools for ZimaOS
+
+**Version 1.0.0** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
+
+The ZimaOS kernel has WireGuard (`CONFIG_WIREGUARD=m`), but not the tools to use it. This module adds them:
+
+- `wg` and `wg-quick` from [wireguard-tools](https://git.zx2c4.com/wireguard-tools) **v1.0.20260223**, built from source (Debian 13 ships 1.0.20210914);
+- `wireguard@.service` — `wg-quick@.service` from wireguard-tools, reading `/DATA/AppData/wireguard/<name>.conf`;
+- `wireguard-zima` — turns a config into a tunnel that also comes back after a reboot.
+
+## Use
+
+```sh
+sudo mkdir -p /DATA/AppData/wireguard
+sudo nano /DATA/AppData/wireguard/wg0.conf     # a normal wg-quick config; the file name is the interface name
+sudo wireguard-zima enable wg0                 # start now and at every boot
+wireguard-zima status wg0
+sudo wireguard-zima disable wg0                # stop, no longer at boot
+```
+
+`wg genkey | tee privatekey | wg pubkey > publickey` makes a key pair. `systemctl reload wireguard@wg0` applies a changed peer list without dropping the tunnel (`wg syncconf`).
+
+### Why `enable` and not `systemctl enable`
+
+A unit inside a sysext is not started at boot on ZimaOS: `multi-user.target` is resolved before the extension is merged into `/usr`. `wireguard-zima enable` therefore writes a small timer to `/etc/systemd/system` (persistent) that starts `wireguard@<name>` 15 seconds after boot if it is not running — lintux-modkit's `sysext/unit-watchdog.sh`. Run `sudo wireguard-zima disable <name>` before removing the module, so no timer is left behind.
+
+### Firewall (ZFW)
+
+ZFW drops incoming traffic it does not know. Its rules already accept traffic **inside** interfaces named `wg*`, but not the UDP port the tunnel listens on (`ListenPort`): open that port in ZFW for a WireGuard server. A host that only dials out (a client config without `ListenPort`) needs nothing.
+
+### Limits
+
+- `DNS =` in a config needs `resolvconf`, which ZimaOS does not have — leave it out.
+- No `nft` on ZimaOS: for full-tunnel routes (`AllowedIPs = 0.0.0.0/0`) `wg-quick` uses `iptables-restore`, which is there.
+
+## Install (on the ZimaOS host)
+
+```sh
+cd /tmp
+curl -fsSLO https://github.com/chicohaager/zimaos-wireguard-sysext/releases/latest/download/wireguard-amd64.raw
+curl -fsSLO https://github.com/chicohaager/zimaos-wireguard-sysext/releases/latest/download/wireguard-amd64.raw.sha256
+sha256sum -c wireguard-amd64.raw.sha256
+mv wireguard-amd64.raw wireguard.raw        # zpkg takes the module name from the file name
+sudo zpkg install /tmp/wireguard.raw
+sudo systemctl daemon-reload
+```
+
+## Build and test
+
+```sh
+sh build.sh amd64              # docker, squashfs-tools, ../lintux-modkit; wireguard-tools pinned by tag and commit
+sudo sh tools/host-test.sh     # on the host after installing; `cleanup` removes what it created
+```
+
+The host test builds a real tunnel: the peer runs in its own network namespace behind a veth pair; a TCP connection must fail before `enable` and get through after it, with a handshake. Measured on ZimaOS 1.8.0 (ZimaBoard 2) with ZFW active, 2026-10-23: 8 OK, 0 FAIL. The test opens the paths it needs in ZFW and removes exactly those again (`cleanup`).
+
+MIT License for this repository, see [LICENSE](LICENSE). wireguard-tools is GPL-2.0, its license is in the image (`/usr/share/doc/wireguard/COPYING`).
