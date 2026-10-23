@@ -1,0 +1,18 @@
+{
+  "name": "wireguard",
+  "version": "v@VERSION@",
+  "ui": {
+    "name": "wireguard",
+    "title": { "en_us": "WireGuard", "de_de": "WireGuard" },
+    "prefetch": true,
+    "show": true,
+    "entry": "/modules/wireguard/index.html",
+    "icon": "/modules/wireguard/appicon.svg",
+    "description": "WireGuard VPN tunnels: create, add clients with a ready config, see who is connected",
+    "formality": {
+      "type": "newtab",
+      "props": { "width": "100vh", "height": "100vh", "hasModalCard": true, "animation": "zoom-in" }
+    }
+  },
+  "services": [ { "name": "wireguard-web" } ]
+}
