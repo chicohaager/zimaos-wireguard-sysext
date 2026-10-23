@@ -15,6 +15,9 @@ go test ./...
 WG_TAG=v1.0.20260223
 WG_COMMIT=49ce333da02056ae7b22ee2aeb6afe8aaed79b19
 IMAGE="debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308"
+# Compiler and libc headers from the Debian snapshot the image names, not the live mirror,
+# so a later rebuild of a release gives the same wg binary (lintux-modkit bundle-debian.sh does the same).
+DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20261020T213255Z}"
 
 rm -rf build/root
 mkdir -p build/root
@@ -22,9 +25,12 @@ cp -a files/. build/root/
 mkdir -p build/root/usr/libexec/wireguard build/root/usr/share/doc/wireguard build/root/usr/share/casaos/modules
 cp "$MODKIT/sysext/unit-watchdog.sh" build/root/usr/libexec/wireguard/unit-watchdog.sh
 
-docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_COMMIT" \
+docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_COMMIT" -e DEBIAN_SNAPSHOT="$DEBIAN_SNAPSHOT" \
   -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -v "$PWD/build/root:/out" "$IMAGE" sh -euc '
-  apt-get update -qq >/dev/null
+  S=/etc/apt/sources.list.d/debian.sources
+  sed -i -E "s#^URIs: http://deb\.debian\.org/(debian(-security)?)\$#URIs: http://snapshot.debian.org/archive/\\1/$DEBIAN_SNAPSHOT#" "$S"
+  [ "$(grep -c "^URIs: http://snapshot.debian.org/archive/.*/$DEBIAN_SNAPSHOT\$" "$S")" -eq 2 ] || { echo "snapshot not set in $S" >&2; exit 1; }
+  apt-get -o Acquire::Check-Valid-Until=false update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates gcc make libc6-dev binutils >/dev/null
   git clone -q --depth 1 --branch "$WG_TAG" https://git.zx2c4.com/wireguard-tools /src
   got=$(git -C /src rev-parse HEAD)
