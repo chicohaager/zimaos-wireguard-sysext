@@ -18,6 +18,10 @@ IMAGE="debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d8
 # Compiler and libc headers from the Debian snapshot the image names, not the live mirror,
 # so a later rebuild of a release gives the same wg binary (lintux-modkit bundle-debian.sh does the same).
 DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20261020T213255Z}"
+# The fixed snapshot also keeps security updates out: every build checks the build packages against
+# the live mirror and stops when one is newer — raise DEBIAN_SNAPSHOT then. DEBIAN_SNAPSHOT_ALLOW_OLD=1
+# only to rebuild an old release.
+DEBIAN_SNAPSHOT_ALLOW_OLD="${DEBIAN_SNAPSHOT_ALLOW_OLD:-0}"
 
 rm -rf build/root
 mkdir -p build/root
@@ -25,7 +29,7 @@ cp -a files/. build/root/
 mkdir -p build/root/usr/libexec/wireguard build/root/usr/share/doc/wireguard build/root/usr/share/casaos/modules
 cp "$MODKIT/sysext/unit-watchdog.sh" build/root/usr/libexec/wireguard/unit-watchdog.sh
 
-docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_COMMIT" -e DEBIAN_SNAPSHOT="$DEBIAN_SNAPSHOT" \
+docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_COMMIT" -e DEBIAN_SNAPSHOT="$DEBIAN_SNAPSHOT" -e DEBIAN_SNAPSHOT_ALLOW_OLD="$DEBIAN_SNAPSHOT_ALLOW_OLD" \
   -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -v "$PWD/build/root:/out" "$IMAGE" sh -euc '
   S=/etc/apt/sources.list.d/debian.sources
   sed -i -E "s#^URIs: http://deb\.debian\.org/(debian(-security)?)\$#URIs: http://snapshot.debian.org/archive/\\1/$DEBIAN_SNAPSHOT#" "$S"
@@ -36,6 +40,20 @@ docker run --rm --platform "linux/$ARCH" -e WG_TAG="$WG_TAG" -e WG_COMMIT="$WG_C
   got=$(git -C /src rev-parse HEAD)
   [ "$got" = "$WG_COMMIT" ] || { echo "tag $WG_TAG is $got, expected $WG_COMMIT" >&2; exit 1; }
   make -s -C /src/src wg >/dev/null
+  sed -i -E "s#^URIs: http://snapshot\.debian\.org/archive/(debian(-security)?)/$DEBIAN_SNAPSHOT\$#URIs: http://deb.debian.org/\\1#" "$S"
+  [ "$(grep -c "^URIs: http://deb.debian.org/" "$S")" -eq 2 ] || { echo "live mirror not set in $S" >&2; exit 1; }
+  apt-get update -qq >/dev/null
+  behind=""
+  for pk in git gcc make libc6-dev binutils libc6; do
+    ver=$(dpkg-query -W -f "\${Version}" "$pk"); cand=$(apt-cache policy "$pk" | awk "/Candidate:/{print \$2}")
+    if dpkg --compare-versions "$cand" gt "$ver"; then behind="$behind $pk:$ver->$cand"; fi
+  done
+  if [ -n "$behind" ]; then
+    echo "Debian snapshot $DEBIAN_SNAPSHOT is outdated, newer in the mirror:$behind" >&2
+    [ "$DEBIAN_SNAPSHOT_ALLOW_OLD" = 1 ] || { echo "raise DEBIAN_SNAPSHOT (security updates), or DEBIAN_SNAPSHOT_ALLOW_OLD=1 only to rebuild an old release" >&2; exit 3; }
+  else
+    echo "Debian snapshot $DEBIAN_SNAPSHOT current: 6 build packages checked against the mirror, none newer"
+  fi
   install -m 755 /src/src/wg /out/usr/bin/wg
   install -m 755 /src/src/wg-quick/linux.bash /out/usr/bin/wg-quick
   cp /src/COPYING /out/usr/share/doc/wireguard/COPYING
