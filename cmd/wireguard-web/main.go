@@ -37,11 +37,15 @@ var (
 // mu serialises every change to the config files.
 var mu sync.Mutex
 
-func main() {
-	webmod.Run(webmod.Options{
+func main() { webmod.Run(options()) }
+
+func options() webmod.Options {
+	return webmod.Options{
 		Name: "wireguard", Service: "wireguard-web", Binary: "/usr/bin/wireguard-web",
 		Route: "/wireguard", Version: version, API: api,
-	})
+		// 0777 without sticky bit on ZimaOS 1.8: checked before the tile reads a config (KB §79.11)
+		DataDirs: []string{confDir},
+	}
 }
 
 func api(verify func(http.Handler) http.Handler) http.Handler {

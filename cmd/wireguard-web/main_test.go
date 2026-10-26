@@ -289,3 +289,25 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// /DATA/AppData is 0777 without the sticky bit on ZimaOS 1.8 (KB §79.11): before
+// root reads a config there — the tile at its start, wg-quick for a tunnel (whose
+// PostUp lines run as root) — the folder is checked (lintux-modkit appdata).
+func TestTheConfigFolderIsCheckedBeforeRootReadsIt(t *testing.T) {
+	found := false
+	for _, d := range options().DataDirs {
+		found = found || d == confDir
+	}
+	if !found {
+		t.Errorf("tile: DataDirs %v without %s", options().DataDirs, confDir)
+	}
+	unit, err := os.ReadFile("../../files/usr/lib/systemd/system/wireguard@.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := "ExecStartPre=/bin/sh /usr/libexec/wireguard/appdata-guard.sh /DATA/AppData/wireguard\n"
+	g, s := strings.Index(string(unit), guard), strings.Index(string(unit), "ExecStart=")
+	if g < 0 || s < 0 || g > s {
+		t.Errorf("wireguard@.service: want %q before ExecStart=", guard)
+	}
+}

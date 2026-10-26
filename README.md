@@ -1,6 +1,6 @@
 # WireGuard tools for ZimaOS
 
-**Version 1.1.0** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
+**Version 1.1.1** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
 
 The ZimaOS kernel has WireGuard (`CONFIG_WIREGUARD=m`), but not the tools to use it. This module adds them:
 
@@ -39,6 +39,8 @@ ZFW drops incoming traffic it does not know. Its rules accept traffic **inside**
 
 - `DNS =` in a config needs `resolvconf`, which ZimaOS does not have — leave it out.
 - No `nft` on ZimaOS: for full-tunnel routes (`AllowedIPs = 0.0.0.0/0`) `wg-quick` uses `iptables-restore`, which is there.
+
+**Folder check** (since 1.1.1): `/DATA/AppData` is writable by everyone on ZimaOS 1.8 (mode 0777 without the sticky bit; the share of `/DATA` is writable over SMB), so another user could replace `/DATA/AppData/wireguard` with a folder of their own — and `wg-quick` runs a config's `PostUp` lines as root. Before a tunnel starts and before the tile reads a config, the module sets the sticky bit on `/DATA/AppData` (then only a folder's owner can rename it) and refuses a `wireguard` folder that is a symlink, not root's, or writable by others (lintux-modkit `appdata`).
 
 ## Install (on the ZimaOS host)
 
