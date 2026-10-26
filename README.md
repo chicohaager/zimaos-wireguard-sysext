@@ -1,6 +1,6 @@
 # WireGuard tools for ZimaOS
 
-**Version 1.1.1** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
+**Version 1.1.2** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
 
 The ZimaOS kernel has WireGuard (`CONFIG_WIREGUARD=m`), but not the tools to use it. This module adds them:
 
