@@ -80,7 +80,12 @@ if wireguard-zima enable "$N"; then pass "wireguard-zima enable $N"; else fail "
 [ "$(systemctl is-active "wireguard@$N.service")" = active ] && pass "wireguard@$N active" || fail "wireguard@$N: $(systemctl is-active "wireguard@$N.service")"
 [ -f /etc/systemd/system/wireguard-$N-watchdog.timer ] && [ "$(systemctl is-enabled wireguard-$N-watchdog.timer)" = enabled ] \
   && pass "watchdog timer enabled" || fail "watchdog timer missing or not enabled"
-if probe "$NS" 10.232.0.1 7831; then pass "TCP through the tunnel"; else fail "no TCP through the tunnel"; fi
+# The peer's first handshake went out before wgt0 existed; its next attempt came 3.6-4.1 s after
+# enable (6 runs on .184, 2026-10-26), longer than one probe waits (0.5 s + 3 s): wait for the
+# handshake (up to 15 s), then probe up to three times, as the Nebula test does.
+for _ in $(seq 1 30); do [ "$(wg show "$N" latest-handshakes | awk '{print $2}')" -gt 0 ] 2>/dev/null && break; sleep 0.5; done
+ok_tcp=0; for _ in 1 2 3; do probe "$NS" 10.232.0.1 7831 && { ok_tcp=1; break; }; sleep 1; done
+[ "$ok_tcp" = 1 ] && pass "TCP through the tunnel" || fail "no TCP through the tunnel"
 hs=$(wg show "$N" latest-handshakes | awk '{print $2}')
 [ "${hs:-0}" -gt 0 ] && pass "handshake at $hs" || fail "no handshake"
 perm=$(stat -c %a "$D/$N.conf"); [ "$perm" = 600 ] && pass "config mode 600" || fail "config mode $perm"
