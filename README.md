@@ -60,6 +60,7 @@ sudo systemctl daemon-reload
 
 ```sh
 sh build.sh amd64              # docker, Go, node, squashfs-tools, ../lintux-modkit; wireguard-tools pinned by tag and commit
+tools/check-reproducible.sh     # before a release: builds twice (umask 022 and 002) and fails when the bytes differ
 sudo sh tools/host-test.sh     # on the host after installing; `cleanup` removes what it created
 ```
 
