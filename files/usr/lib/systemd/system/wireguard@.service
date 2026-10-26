@@ -14,6 +14,10 @@ Documentation=https://www.wireguard.com/
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# /DATA/AppData is writable by everyone on ZimaOS 1.8 (0777, no sticky bit): the guard sets the
+# sticky bit and refuses a folder that is not root's or a symlink, before wg-quick runs the
+# config's PostUp lines as root (lintux-modkit appdata-guard.sh, KB §79.11).
+ExecStartPre=/bin/sh /usr/libexec/wireguard/appdata-guard.sh /DATA/AppData/wireguard
 ExecStart=/usr/bin/wg-quick up /DATA/AppData/wireguard/%i.conf
 ExecStop=/usr/bin/wg-quick down /DATA/AppData/wireguard/%i.conf
 ExecReload=/bin/bash -c 'exec /usr/bin/wg syncconf %i <(exec /usr/bin/wg-quick strip /DATA/AppData/wireguard/%i.conf)'
