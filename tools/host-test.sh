@@ -7,9 +7,9 @@
 # Test names: interface wgt0, namespace wgtpeer, veth vwgt0/vwgt1, 10.231.0.0/30 and 10.232.0.0/24.
 set -u
 D=/DATA/AppData/wireguard; N=wgt0; NS=wgtpeer
-ok=0; bad=0
-pass() { ok=$((ok + 1)); echo "OK   $1"; }
-fail() { bad=$((bad + 1)); echo "FAIL $1"; }
+# pass/fail and the cleanup after a failure or abort: lintux-modkit tools/hosttest-lib.sh, copied next to this file
+. "$(dirname "$0")/hosttest-lib.sh"
+HT_LIST=/etc/lintux-hosttest/wireguard.list
 
 # TCP probe with python3 (ZimaOS' ping is a BusyBox applet that exits 1 without output, even
 # for --help, measured 1.8.0). The host answers "pong"; the client connects from the namespace.
@@ -34,19 +34,24 @@ zfw_open() { iptables -S ZFW-IN >/dev/null 2>&1 || return 0
   for spec in "$@"; do eval "iptables -I ZFW-IN 1 $spec -m comment --comment module-host-test -j ACCEPT"; done; }
 zfw_close() { iptables -S ZFW-IN 2>/dev/null | grep -- '--comment module-host-test' | sed 's/^-A /-D /' | while read -r r; do eval "iptables $r"; done; }
 
-if [ "${1:-}" = cleanup ]; then
+wireguard_cleanup() {
   zfw_close
   wireguard-zima disable "$N"
   ip netns del "$NS" 2>/dev/null; ip link del vwgt0 2>/dev/null
   rm -f "$D/$N.conf" "$D/.wgtpeer.key"
   rmdir "$D" 2>/dev/null
   echo "cleanup done: $(ip -o link show | grep -c 'wgt0\|vwgt0') test interfaces left"
+}
+if [ "${1:-}" = cleanup ]; then
+  wireguard_cleanup
+  rm -f "$HT_LIST"
   exit 0
 fi
 
 echo "zfw: $(systemctl is-active zfw.service 2>/dev/null || true), chain ZFW-IN: $(iptables -S ZFW-IN >/dev/null 2>&1 && echo present || echo absent)"
 for b in wg wg-quick wireguard-zima /bin/bash ip; do command -v "$b" >/dev/null || fail "missing $b"; done
 
+ht_init "$HT_LIST"; ht_made call wireguard_cleanup   # from here on a failure or abort runs wireguard_cleanup
 umask 077; mkdir -p "$D"
 HPRIV=$(wg genkey); HPUB=$(printf '%s' "$HPRIV" | wg pubkey)
 PPRIV=$(wg genkey); PPUB=$(printf '%s' "$PPRIV" | wg pubkey)
@@ -92,4 +97,4 @@ perm=$(stat -c %a "$D/$N.conf"); [ "$perm" = 600 ] && pass "config mode 600" || 
 if systemctl reload "wireguard@$N.service"; then pass "reload (wg syncconf)"; else fail "reload"; fi
 wireguard-zima status "$N" | head -n 1
 echo "wireguard host-test: $ok OK, $bad FAIL"
-[ "$bad" -eq 0 ]
+ht_done
