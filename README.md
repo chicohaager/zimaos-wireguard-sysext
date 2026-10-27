@@ -62,7 +62,8 @@ sudo systemctl daemon-reload
 sh build.sh amd64              # docker, Go, node, squashfs-tools, ../lintux-modkit; wireguard-tools pinned by tag and commit
 tools/check-reproducible.sh     # before a release: builds three times (umask 022, 002 and 077) and fails when the bytes differ
 ../lintux-modkit/tools/check-release.sh . v<version> wireguard# after the release: rebuilds the tag, same bytes as the asset
-sudo sh tools/host-test.sh     # on the host after installing; `cleanup` removes what it created
+sudo sh tools/host-test.sh     # on the host after installing, with lintux-modkit tools/hosttest-lib.sh next to it;
+                               # a failure or abort removes what it created, after a clean run `cleanup` does
 ```
 
 The host test builds a real tunnel: the peer runs in its own network namespace behind a veth pair; a TCP connection must fail before `enable` and get through after it, with a handshake. Measured on ZimaOS 1.8.0 (ZimaBoard 2) with ZFW active, 2026-10-23: 8 OK, 0 FAIL. The test opens the paths it needs in ZFW and removes exactly those again (`cleanup`).
