@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 ARCH="${1:-amd64}"
 MODKIT="${LINTUX_MODKIT:-../lintux-modkit}"
 [ -f "$MODKIT/sysext/unit-watchdog.sh" ] || { echo "lintux-modkit with sysext/unit-watchdog.sh not found at $MODKIT (set LINTUX_MODKIT)" >&2; exit 1; }
+sh scripts/modkit-check.sh "$MODKIT"   # the lintux-modkit commit of lintux-modkit.ref, for the scripts and for Go, no local changes
 VERSION=$(cat VERSION)
 go vet ./...
 go test ./...

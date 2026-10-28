@@ -66,6 +66,8 @@ sudo sh tools/host-test.sh     # on the host after installing, with lintux-modki
                                # a failure or abort removes what it created, after a clean run `cleanup` does
 ```
 
+`build.sh` builds only against the lintux-modkit commit in `lintux-modkit.ref`, without local changes — both for the scripts (`../lintux-modkit` or `LINTUX_MODKIT=`) and for the directory Go compiles (go.mod's `replace` or a `go.work`; `LINTUX_MODKIT` does not move it): `scripts/modkit-check.sh` asks `go list` which one that is. `MODKIT_DEV=1` builds anyway, with a warning, not for a release. `bash tools/test-modkit-check.sh` tests the check.
+
 The host test builds a real tunnel: the peer runs in its own network namespace behind a veth pair; a TCP connection must fail before `enable` and get through after it, with a handshake. Measured on ZimaOS 1.8.0 (ZimaBoard 2) with ZFW active, 2026-10-23: 8 OK, 0 FAIL. The test opens the paths it needs in ZFW and removes exactly those again (`cleanup`).
 
 MIT License for this repository, see [LICENSE](LICENSE). wireguard-tools is GPL-2.0, its license is in the image (`/usr/share/doc/wireguard/COPYING`).
