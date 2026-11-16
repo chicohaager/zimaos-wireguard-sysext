@@ -1,6 +1,6 @@
 # WireGuard tools for ZimaOS
 
-**Version 1.1.2** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
+**Version 1.1.3** · ZimaOS 1.8.0 (amd64) · sysext module `wireguard`
 
 The ZimaOS kernel has WireGuard (`CONFIG_WIREGUARD=m`), but not the tools to use it. This module adds them:
 
@@ -40,7 +40,7 @@ ZFW drops incoming traffic it does not know. Its rules accept traffic **inside**
 - `DNS =` in a config needs `resolvconf`, which ZimaOS does not have — leave it out.
 - No `nft` on ZimaOS: for full-tunnel routes (`AllowedIPs = 0.0.0.0/0`) `wg-quick` uses `iptables-restore`, which is there.
 
-**Folder check** (since 1.1.1): `/DATA/AppData` is writable by everyone on ZimaOS 1.8 (mode 0777 without the sticky bit; the share of `/DATA` is writable over SMB), so another user could replace `/DATA/AppData/wireguard` with a folder of their own — and `wg-quick` runs a config's `PostUp` lines as root. Before a tunnel starts and before the tile reads a config, the module sets the sticky bit on `/DATA/AppData` (then only a folder's owner can rename it) and refuses a `wireguard` folder that is a symlink, not root's, or writable by others (lintux-modkit `appdata`).
+**Folder check** (since 1.1.1): `/DATA/AppData` is writable by everyone on ZimaOS 1.8 (mode 0777 without the sticky bit; the share of `/DATA` is writable over SMB), so another user could replace `/DATA/AppData/wireguard` with a folder of their own — and `wg-quick` runs a config's `PostUp` lines as root. Before a tunnel starts and before the tile reads a config, the module sets the sticky bit on `/DATA/AppData` (then only a folder's owner can rename it) and refuses a `wireguard` folder that is a symlink, not root's, or writable by others (lintux-modkit `appdata`). Since 1.1.3, a `/DATA` that another user owns (uid 999 on one ZimaOS 1.8 box — that user could rename `/DATA/AppData`) is given back to root, with the way back in the log.
 
 ## Install (on the ZimaOS host)
 
@@ -62,8 +62,11 @@ sudo systemctl daemon-reload
 sh build.sh amd64              # docker, Go, node, squashfs-tools, ../lintux-modkit; wireguard-tools pinned by tag and commit
 tools/check-reproducible.sh     # before a release: builds three times (umask 022, 002 and 077) and fails when the bytes differ
 ../lintux-modkit/tools/check-release.sh . v<version> wireguard# after the release: rebuilds the tag, same bytes as the asset
-sudo sh tools/host-test.sh     # on the host after installing; `cleanup` removes what it created
+sudo sh tools/host-test.sh     # on the host after installing, with lintux-modkit tools/hosttest-lib.sh next to it;
+                               # a failure or abort removes what it created, after a clean run `cleanup` does
 ```
+
+`build.sh` builds only against the lintux-modkit commit in `lintux-modkit.ref`, without local changes — both for the scripts (`../lintux-modkit` or `LINTUX_MODKIT=`) and for the directory Go compiles (go.mod's `replace` or a `go.work`; `LINTUX_MODKIT` does not move it): `scripts/modkit-check.sh` asks `go list` which one that is. `MODKIT_DEV=1` builds anyway, with a warning, not for a release. `bash tools/test-modkit-check.sh` tests the check.
 
 The host test builds a real tunnel: the peer runs in its own network namespace behind a veth pair; a TCP connection must fail before `enable` and get through after it, with a handshake. Measured on ZimaOS 1.8.0 (ZimaBoard 2) with ZFW active, 2026-10-23: 8 OK, 0 FAIL. The test opens the paths it needs in ZFW and removes exactly those again (`cleanup`).
 
