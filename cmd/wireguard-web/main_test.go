@@ -227,6 +227,7 @@ func TestAddClientReturnsAWorkingConfigAndReloads(t *testing.T) {
 func TestAddPeerRejectsInjection(t *testing.T) {
 	setup(t)
 	call(t, "POST", "/wireguard/tunnels", map[string]any{"name": "wg0", "address": "10.8.0.1/24", "listen_port": 51820})
+	before, _ := os.ReadFile(filepath.Join(confDir, "wg0.conf"))
 	for _, in := range []map[string]any{
 		{"tunnel": "wg0", "name": "x\nPostUp = rm -rf /", "endpoint": "h:1"},
 		{"tunnel": "wg0", "name": "ok", "endpoint": "h:1\nPostUp = id"},
@@ -239,7 +240,7 @@ func TestAddPeerRejectsInjection(t *testing.T) {
 		}
 	}
 	b, _ := os.ReadFile(filepath.Join(confDir, "wg0.conf"))
-	if strings.Contains(string(b), "PostUp") || len(parseConf(string(b)).Peers) != 0 {
+	if !bytes.Equal(b, before) || strings.Count(string(b), "PostUp") != 1 || len(parseConf(string(b)).Peers) != 0 {
 		t.Fatalf("config changed:\n%s", b)
 	}
 }
@@ -309,5 +310,109 @@ func TestTheConfigFolderIsCheckedBeforeRootReadsIt(t *testing.T) {
 	g, s := strings.Index(string(unit), guard), strings.Index(string(unit), "ExecStart=")
 	if g < 0 || s < 0 || g > s {
 		t.Errorf("wireguard@.service: want %q before ExecStart=", guard)
+	}
+}
+
+// ---------- NAT for clients (forum report 2026-11-23: clients connected, no internet) ----------
+
+func readConf(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(confDir, "wg0.conf"))
+	must(t, err)
+	return string(b)
+}
+
+// interfaceSection is the text from [Interface] up to the next section header.
+func interfaceSection(text string) string {
+	_, rest, _ := strings.Cut(text, "[Interface]")
+	sec, _, _ := strings.Cut(rest, "\n[")
+	return sec
+}
+
+func TestNewTunnelHasNATInItsInterfaceSection(t *testing.T) {
+	setup(t)
+	call(t, "POST", "/wireguard/tunnels", map[string]any{"name": "wg0", "address": "10.8.0.1/24", "listen_port": 51820})
+	text := readConf(t)
+	sec := interfaceSection(text)
+	for _, l := range natLines {
+		if strings.Count(sec, l+"\n") != 1 {
+			t.Fatalf("%q not once in [Interface]:\n%s", l, text)
+		}
+	}
+	if !parseConf(text).NAT {
+		t.Fatal("parseConf does not see the NAT lines")
+	}
+	_, out := call(t, "GET", "/wireguard/tunnels", nil)
+	if tun := out["tunnels"].([]any)[0].(map[string]any); tun["nat"] != true {
+		t.Fatalf("list: %v", tun)
+	}
+}
+
+func TestNATSwitchOnAnOldTunnelKeepsPeersAndOwnLines(t *testing.T) {
+	f := setup(t)
+	old := strings.Replace(sample, "ListenPort = 51820\n", "ListenPort = 51820\nPostUp = echo mine\n", 1)
+	must(t, os.WriteFile(filepath.Join(confDir, "wg0.conf"), []byte(old), 0o600))
+	if parseConf(old).NAT {
+		t.Fatal("an old config counts as NAT on")
+	}
+	for i := 0; i < 2; i++ { // twice: the lines are there once
+		if w, _ := call(t, "POST", "/wireguard/tunnels/nat", map[string]any{"name": "wg0", "on": true}); w.Code != 200 {
+			t.Fatalf("on: %d %s", w.Code, w.Body)
+		}
+	}
+	text := readConf(t)
+	c := parseConf(text)
+	sec := interfaceSection(text)
+	if !c.NAT || len(c.Peers) != 2 || c.Peers[1].Endpoint != "203.0.113.9:4000" || strings.Count(text, natLines[1]) != 1 ||
+		!strings.Contains(sec, natLines[1]) || !strings.Contains(sec, "PostUp = echo mine") {
+		t.Fatalf("after on:\n%s", text)
+	}
+	if strings.Contains(strings.Join(f.cmds, "|"), "nat.sh") {
+		t.Fatalf("nat.sh ran for a stopped tunnel: %v", f.cmds)
+	}
+	call(t, "POST", "/wireguard/tunnels/nat", map[string]any{"name": "wg0", "on": false})
+	if got := readConf(t); got != old {
+		t.Fatalf("off does not give the old config back:\n%s", got)
+	}
+}
+
+func TestNATSwitchOnARunningTunnelRunsTheScript(t *testing.T) {
+	f := setup(t)
+	call(t, "POST", "/wireguard/tunnels", map[string]any{"name": "wg0", "address": "10.8.0.1/24", "listen_port": 51820})
+	f.active["wireguard@wg0.service"] = true
+	call(t, "POST", "/wireguard/tunnels/nat", map[string]any{"name": "wg0", "on": false})
+	call(t, "POST", "/wireguard/tunnels/nat", map[string]any{"name": "wg0", "on": true})
+	cmds := strings.Join(f.cmds, "|")
+	if !strings.Contains(cmds, "/bin/sh "+natScript+" down wg0|") || !strings.HasSuffix(cmds, "/bin/sh "+natScript+" up wg0") {
+		t.Fatalf("commands: %v", f.cmds)
+	}
+	for _, in := range []map[string]any{{"name": "../x", "on": true}, {"name": "wg9", "on": true}} {
+		if w, _ := call(t, "POST", "/wireguard/tunnels/nat", in); w.Code == 200 {
+			t.Errorf("%v accepted", in)
+		}
+	}
+}
+
+func TestFullTunnelClientWarnsWhenNATIsOff(t *testing.T) {
+	setup(t)
+	call(t, "POST", "/wireguard/tunnels", map[string]any{"name": "wg0", "address": "10.8.0.1/24", "listen_port": 51820})
+	_, out := call(t, "POST", "/wireguard/peers", map[string]any{"tunnel": "wg0", "name": "A", "endpoint": "h:1", "full_tunnel": true})
+	if _, ok := out["warning"]; ok {
+		t.Fatalf("warning with NAT on: %v", out)
+	}
+	call(t, "POST", "/wireguard/tunnels/nat", map[string]any{"name": "wg0", "on": false})
+	_, out = call(t, "POST", "/wireguard/peers", map[string]any{"tunnel": "wg0", "name": "B", "endpoint": "h:1", "full_tunnel": true})
+	if w, _ := out["warning"].(string); !strings.Contains(w, "NAT is off") {
+		t.Fatalf("no NAT warning: %v", out)
+	}
+	_, out = call(t, "POST", "/wireguard/peers", map[string]any{"tunnel": "wg0", "name": "C", "endpoint": "h:1"})
+	if _, ok := out["warning"]; ok {
+		t.Fatalf("warning for a split-tunnel client: %v", out)
+	}
+}
+
+func TestSetNATNeedsAnInterfaceSection(t *testing.T) {
+	if _, err := setNAT("[Peer]\nPublicKey = x\n", true); err == nil {
+		t.Fatal("no error without [Interface]")
 	}
 }

@@ -18,7 +18,7 @@ WG_COMMIT=49ce333da02056ae7b22ee2aeb6afe8aaed79b19
 IMAGE="debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308"
 # Compiler and libc headers from the Debian snapshot the image names, not the live mirror,
 # so a later rebuild of a release gives the same wg binary (lintux-modkit bundle-debian.sh does the same).
-DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20261020T213255Z}"
+DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20261122T000000Z}"
 # The fixed snapshot also keeps security updates out: every build checks the build packages against
 # the live mirror and stops when one is newer — raise DEBIAN_SNAPSHOT then. DEBIAN_SNAPSHOT_ALLOW_OLD=1
 # only to rebuild an old release.

@@ -62,6 +62,9 @@ function tunnelHTML(t) {
       <dt>Address</dt><dd class="mono">${esc(t.address)}</dd>
       <dt>Listen port</dt><dd class="mono">${esc(t.listen_port || '—')}/udp</dd>
       <dt>Public key</dt><dd class="mono">${esc(t.public_key)}</dd>
+      <dt>Clients reach the internet and the LAN</dt><dd>${t.nat
+        ? '<span class="pill pill-ok">on</span> through this host (NAT) <button class="btn-small btn-secondary" data-act="nat-off">Turn off</button>'
+        : '<span class="pill pill-warn">off</span> clients reach only this host <button class="btn-small btn-primary" data-act="nat-on">Turn on</button>'}</dd>
     </dl>
     <div class="zfw-line" data-port="${esc(t.listen_port)}"></div>
     <h4 class="section-title" style="margin-top:14px">Peers</h4>
@@ -190,6 +193,9 @@ document.addEventListener('click', async (e) => {
       await api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'disable' } });
       return zfwClose(Number(card.dataset.port));
     }); break;
+    // NAT for the clients: a running tunnel gets the rules at once and keeps running.
+    case 'nat-on': await act(`Turning on internet and LAN for the clients of ${name}`, () => api(`${API}/tunnels/nat`, { method: 'POST', body: { name, on: true } })); break;
+    case 'nat-off': await act(`Turning off internet and LAN for the clients of ${name}`, () => api(`${API}/tunnels/nat`, { method: 'POST', body: { name, on: false } })); break;
     case 'restart': await act(`Restarting ${name}`, () => api(`${API}/tunnels/action`, { method: 'POST', body: { name, action: 'restart' } })); break;
     case 'delete':
       if (!armed(btn)) return;
