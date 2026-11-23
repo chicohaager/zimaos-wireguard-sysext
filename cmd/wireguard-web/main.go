@@ -53,6 +53,7 @@ func api(verify func(http.Handler) http.Handler) http.Handler {
 	mux.Handle("/wireguard/tunnels", verify(http.HandlerFunc(tunnelsHandler)))
 	mux.Handle("/wireguard/tunnels/delete", verify(post(deleteTunnel)))
 	mux.Handle("/wireguard/tunnels/action", verify(post(tunnelAction)))
+	mux.Handle("/wireguard/tunnels/nat", verify(post(tunnelNAT)))
 	mux.Handle("/wireguard/peers", verify(post(addPeer)))
 	mux.Handle("/wireguard/peers/delete", verify(post(deletePeer)))
 	return mux
@@ -93,6 +94,7 @@ type Tunnel struct {
 	PublicKey  string     `json:"public_key"`
 	Active     string     `json:"active"`
 	Boot       bool       `json:"boot"`
+	NAT        bool       `json:"nat"` // clients reach the internet and the LAN through this host
 	Peers      []LivePeer `json:"peers"`
 	Error      string     `json:"error,omitempty"`
 }
@@ -132,7 +134,7 @@ func readTunnel(ctx context.Context, name string) Tunnel {
 		return t
 	}
 	c := parseConf(string(b))
-	t.Address, t.ListenPort = c.Address, c.ListenPort
+	t.Address, t.ListenPort, t.NAT = c.Address, c.ListenPort, c.NAT
 	if pub, err := publicKey(c.PrivateKey); err == nil {
 		t.PublicKey = pub
 	} else {
@@ -214,7 +216,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, err)
 		return
 	}
-	text := fmt.Sprintf("# Created by the WireGuard tile.\n[Interface]\nPrivateKey = %s\nAddress = %s\nListenPort = %d\n", priv, p, in.ListenPort)
+	text := fmt.Sprintf("# Created by the WireGuard tile.\n[Interface]\nPrivateKey = %s\nAddress = %s\nListenPort = %d\n%s\n", priv, p, in.ListenPort, strings.Join(natLines, "\n"))
 	if err := writeFile(confPath(in.Name), text); err != nil {
 		httpx.WriteErr(w, err)
 		return
@@ -296,6 +298,54 @@ func tunnelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// tunnelNAT turns the NAT lines of a tunnel on or off. A running tunnel gets the rules at once
+// (nat.sh directly, the tunnel keeps running); PostUp/PostDown apply them at the next start/stop.
+func tunnelNAT(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+		On   bool   `json:"on"`
+	}
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	if !validName(in.Name) {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_name", "invalid tunnel name")
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	b, err := os.ReadFile(confPath(in.Name))
+	if err != nil {
+		httpx.WriteError(w, http.StatusNotFound, "unknown", "no tunnel named "+in.Name)
+		return
+	}
+	text, err := setNAT(string(b), in.On)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "bad_conf", err.Error())
+		return
+	}
+	if text != string(b) {
+		if err := writeFile(confPath(in.Name), text); err != nil {
+			httpx.WriteErr(w, err)
+			return
+		}
+	}
+	ctx, cancel := ctxShort(r)
+	defer cancel()
+	a, _ := run(ctx, "systemctl", "is-active", "wireguard@"+in.Name+".service")
+	if strings.TrimSpace(string(a)) == "active" {
+		act := "down"
+		if in.On {
+			act = "up"
+		}
+		if out, err := run(ctx, "/bin/sh", natScript, act, in.Name); err != nil {
+			httpx.WriteError(w, http.StatusBadGateway, "nat_failed", "config saved, but the running tunnel was not changed: "+strings.TrimSpace(string(out)))
+			return
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "nat": in.On})
 }
 
 // ---------- peers ----------
@@ -405,8 +455,15 @@ func addPeer(w http.ResponseWriter, r *http.Request) {
 	reloadErr := reloadIfActive(ctx, in.Tunnel)
 
 	resp := map[string]any{"status": "added", "public_key": in.PublicKey}
+	var warn []string
 	if reloadErr != nil {
-		resp["warning"] = reloadErr.Error()
+		warn = append(warn, reloadErr.Error())
+	}
+	if in.FullRoute && clientPriv != "" && !c.NAT {
+		warn = append(warn, "NAT is off for this tunnel, so this client reaches only this host: turn on \"Clients reach the internet and the LAN\" for the tunnel")
+	}
+	if len(warn) > 0 {
+		resp["warning"] = strings.Join(warn, "; ")
 	}
 	if clientPriv != "" {
 		routes := subnet.String()

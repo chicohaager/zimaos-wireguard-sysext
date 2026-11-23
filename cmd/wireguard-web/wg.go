@@ -73,6 +73,7 @@ type Conf struct {
 	PrivateKey string
 	Address    string
 	ListenPort int
+	NAT        bool // the tile's NAT lines (natLines) are in [Interface]
 	Peers      []Peer
 }
 
@@ -115,6 +116,8 @@ func parseConf(text string) Conf {
 			c.Address = v
 		case section == "interface" && strings.EqualFold(k, "ListenPort"):
 			c.ListenPort, _ = strconv.Atoi(v)
+		case section == "interface" && l == natLines[1]:
+			c.NAT = true
 		case section == "peer" && strings.EqualFold(k, "PublicKey"):
 			cur.PublicKey = v
 		case section == "peer" && strings.EqualFold(k, "AllowedIPs"):
@@ -124,6 +127,64 @@ func parseConf(text string) Conf {
 		}
 	}
 	return c
+}
+
+// ---------- NAT for clients ----------
+
+// natScript sets MASQUERADE and FORWARD rules for a tunnel's clients (files/usr/libexec/wireguard/nat.sh).
+const natScript = "/usr/libexec/wireguard/nat.sh"
+
+// natLines are what the tile writes into [Interface] so clients reach the internet and the LAN
+// through this host (wg-easy and PiVPN write the same kind of PostUp/PostDown rules). Without
+// them a client's packets leave with its tunnel address and the router has no way back.
+var natLines = []string{
+	"# NAT for clients (WireGuard tile): they reach the internet and the LAN through this host",
+	"PostUp = /bin/sh " + natScript + " up %i",
+	"PostDown = /bin/sh " + natScript + " down %i",
+}
+
+func isNATLine(l string) bool {
+	l = strings.TrimSpace(l)
+	for _, n := range natLines {
+		if l == n {
+			return true
+		}
+	}
+	return false
+}
+
+// setNAT returns text with the tile's NAT lines at the end of the [Interface] section (on) or
+// without them (off). Other lines, also PostUp lines of one's own, stay as they are.
+func setNAT(text string, on bool) (string, error) {
+	var kept []string
+	for _, l := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		if !isNATLine(l) {
+			kept = append(kept, l)
+		}
+	}
+	if on {
+		start, end := -1, len(kept)
+		for i, l := range kept {
+			t := strings.TrimSpace(l)
+			if start < 0 && strings.EqualFold(t, "[Interface]") {
+				start = i
+			} else if start >= 0 && strings.HasPrefix(t, "[") {
+				end = i
+				break
+			}
+		}
+		if start < 0 {
+			return "", errors.New("the config has no [Interface] section")
+		}
+		at := end
+		for at > start+1 && strings.TrimSpace(kept[at-1]) == "" {
+			at--
+		}
+		out := append([]string{}, kept[:at]...)
+		out = append(out, natLines...)
+		kept = append(out, kept[at:]...)
+	}
+	return strings.Join(kept, "\n") + "\n", nil
 }
 
 // removePeer drops the [Peer] section with the given public key. It returns
