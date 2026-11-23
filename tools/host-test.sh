@@ -109,7 +109,19 @@ hs=$(wg show "$N" latest-handshakes | awk '{print $2}')
 [ "${hs:-0}" -gt 0 ] && pass "handshake at $hs" || fail "no handshake"
 # NAT for clients (forum report 2026-11-23: clients connected, no internet). PostUp set the rules.
 outside() { for _ in 1 2 3; do probe "$NS" 10.233.0.2 7832 wgtout && return 0; sleep 1; done; return 1; }
-nr=$(sh /usr/libexec/wireguard/nat.sh status "$N"); [ "$nr" = 3 ] && pass "PostUp set 3 NAT rules" || fail "NAT rules after enable: $nr"
+# Expected: MASQUERADE for the tunnel subnet plus two FORWARD rules per uplink (default-route interface).
+ups=$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}' | sort -u)
+want=$(( 1 + 2 * $(printf '%s\n' "$ups" | grep -c . || true) ))
+nr=$(sh /usr/libexec/wireguard/nat.sh status "$N"); [ "$nr" = "$want" ] && pass "PostUp set $want NAT rules (uplink: $(echo $ups))" || fail "NAT rules after enable: $nr, want $want"
+# The FORWARD rules must not open the way to Docker's bridges or past ZFW (2026-11-23: inserted at
+# the top without -o, a client on a tunnel not named wg* reached unpublished container ports and
+# ports ZFW opens only to the LAN): each names an uplink, and all come after the DOCKER-USER jump.
+fwd=$(iptables -S FORWARD | grep -n -- "--comment wgzima-nat-$N " || true)
+bad_o=$(printf '%s\n' "$fwd" | grep . | while read -r l; do ok=0; for u in $ups; do case "$l" in *"-o $u "*|*"-i $u "*) ok=1 ;; esac; done; [ "$ok" = 1 ] || echo "$l"; done)
+[ -z "$bad_o" ] && pass "FORWARD rules only to and from the uplink" || fail "FORWARD rule without an uplink: $bad_o"
+du=$(iptables -S FORWARD | grep -n -- '-j DOCKER-USER$' | head -n 1 | cut -d: -f1)
+first=$(printf '%s\n' "$fwd" | grep . | head -n 1 | cut -d: -f1)
+if [ -z "$du" ] || [ -z "$first" ] || [ "$first" -gt "$du" ]; then pass "FORWARD rules after DOCKER-USER (line ${first:-none}, DOCKER-USER ${du:-none})"; else fail "FORWARD rule at line $first, before DOCKER-USER at $du"; fi
 outside && pass "client reaches an address behind the host (NAT)" || fail "client does not reach the address behind the host"
 sh /usr/libexec/wireguard/nat.sh down "$N"
 # Negative control: without NAT the outside cannot answer (no route back to the tunnel).
@@ -120,7 +132,7 @@ perm=$(stat -c %a "$D/$N.conf"); [ "$perm" = 600 ] && pass "config mode 600" || 
 if systemctl reload "wireguard@$N.service"; then pass "reload (wg syncconf)"; else fail "reload"; fi
 # A restart runs PostDown then PostUp: the rules are there once, not twice.
 systemctl restart "wireguard@$N.service"
-nr=$(sh /usr/libexec/wireguard/nat.sh status "$N"); [ "$nr" = 3 ] && pass "after restart 3 NAT rules" || fail "NAT rules after restart: $nr"
+nr=$(sh /usr/libexec/wireguard/nat.sh status "$N"); [ "$nr" = "$want" ] && pass "after restart $want NAT rules" || fail "NAT rules after restart: $nr, want $want"
 wireguard-zima status "$N" | head -n 1
 echo "wireguard host-test: $ok OK, $bad FAIL"
 ht_done
